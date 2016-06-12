@@ -833,5 +833,4 @@ ext2_group_first_block_no(struct super_block *sb, unsigned long group_no)
 #define S(X) printk(KERN_ERR X)
 #define LL(x) (long unsigned int) x
 
-extern void dump_inode(struct inode * inode, struct ext2_inode_info * info);
-extern void dump_shared_inodes(struct inode * inode);
+extern void dump_inode(struct inode * inode);

@@ -199,6 +199,28 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
+void dump_inode(struct inode * inode) {
+	int i;
+	struct list_head *ptr;
+	struct shared_inode *entry;
+	struct ext2_inode_info * info = EXT2_I(inode);
+	printk("Inode[%lu]", inode->i_ino);
+	printk("Size: %ld\n", LL(inode->i_size));
+	printk("Blocks: %ld\n", LL(inode->i_blocks));
+	i = 0;
+	printk("Blocks: ");
+	for (i = 0; i < EXT2_N_BLOCKS; ++i) {
+		printk(KERN_CONT "(%lu) ", LL(info->i_data[i]));
+	}
+	printk(KERN_CONT "\n");
+	printk("Shared inodes: ");
+	list_for_each(ptr, &info->shared_inodes) {
+		entry = list_entry(ptr, struct shared_inode, list);
+		printk(KERN_CONT "%lu ", LL(entry->inode->i_ino));
+	}
+	printk(KERN_CONT "\n");
+}
+
 void dump_chain(struct inode* inode, int depth, Indirect chain[4]) {
 	int i;
 	printk("dump_chain[%lu]: depth %d ", LL(inode->i_ino), depth);
@@ -331,6 +353,8 @@ failure:
 	printk("ext2_get_branch[%lu]: Failure\n", LL(inode->i_ino));
 	*err = -EIO;
 no_block:
+	dump_inode(inode);
+	dump_chain(inode, d, chain);
 	printk("ext2_get_branch[%lu]: No block\n", LL(inode->i_ino));
 	return p;
 }
@@ -1646,29 +1670,6 @@ int ext2_setattr(struct dentry *dentry, struct iattr *iattr)
 	mark_inode_dirty(inode);
 
 	return error;
-}
-
-void dump_inode(struct inode * inode, struct ext2_inode_info * info) {
-	int i;
-	printk("Size: %ld\n", LL(inode->i_size));
-	printk("Blocks: %ld\n", LL(inode->i_blocks));
-	i = 0;
-	for (i = 0; i < EXT2_N_BLOCKS; ++i) {
-		printk("Block %lu: %lu\n", LL(i), LL(info->i_data[i]));
-	}
-}
-
-void dump_shared_inodes(struct inode * inode) {
-	struct list_head *ptr;
-	struct shared_inode *entry;
-	struct ext2_inode_info * info = EXT2_I(inode);
-
-	printk("Shared inodes of %lu: ", LL(inode->i_ino));
-	list_for_each(ptr, &info->shared_inodes) {
-		entry = list_entry(ptr, struct shared_inode, list);
-		printk(KERN_CONT "%lu ", LL(entry->inode->i_ino));
-	}
-	printk(KERN_CONT "\n");
 }
 
 int ext2_update_shared_inodes(struct inode * source_inode, struct inode * dest_inode) {

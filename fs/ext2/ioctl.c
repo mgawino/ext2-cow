@@ -54,13 +54,12 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 	for (i = 0; i < EXT2_N_BLOCKS; i++) {
 		dest_inode_info->i_data[i] = source_inode_info->i_data[i];
 	}
-
+	dump_inode(dest_inode);
 	ext2_update_shared_inodes(source_inode, dest_inode);
 
-	// FIXME: Remove
-//	S("IOCTL\n");
-//	dump_shared_inodes(source_inode);
-//	dump_shared_inodes(dest_inode);
+	S("IOCTL\n");
+	dump_inode(source_inode);
+	dump_inode(dest_inode);
 
 	mark_inode_dirty(dest_inode);
 	wakeup_flusher_threads(0, WB_REASON_SYNC); // FIXME: Remove
