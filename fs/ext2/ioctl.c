@@ -15,7 +15,60 @@
 #include <linux/mount.h>
 #include <asm/current.h>
 #include <asm/uaccess.h>
+#include <linux/fdtable.h>
+#include <linux/list.h>
+#include <linux/slab.h>
+#include <linux/kernel.h> // FIXME: Remove
+#include <linux/writeback.h> // FIXME: Remove
 
+
+int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
+	int i, ret = 0;
+	struct files_struct *files = current->files;
+	struct fdtable *fdt;
+	struct inode * source_inode;
+	struct file * source_file;
+	struct ext2_inode_info * source_inode_info;
+	struct ext2_inode_info * dest_inode_info;
+
+	spin_lock(&files->file_lock);
+	fdt = files_fdtable(files);
+	if (source_fd > fdt->max_fds) {
+		printk(KERN_ERR "Invalid file descriptor\n");
+		ret = -ENFILE;
+		goto unlock_file;
+	}
+	source_file = fdt->fd[source_fd];
+	if (!source_file) {
+		printk(KERN_ERR "File not found\n");
+		ret = -ENOENT;
+		goto unlock_file;
+	}
+	source_inode = file_inode(source_file);
+	source_inode_info = EXT2_I(source_inode);
+	dest_inode_info = EXT2_I(dest_inode);
+
+	dest_inode->i_size = source_inode->i_size;
+	dest_inode->i_blocks = source_inode->i_blocks;
+
+	for (i = 0; i < EXT2_N_BLOCKS; i++) {
+		dest_inode_info->i_data[i] = source_inode_info->i_data[i];
+	}
+
+	ext2_update_shared_inodes(source_inode, dest_inode);
+
+	// FIXME: Remove
+//	S("IOCTL\n");
+//	dump_shared_inodes(source_inode);
+//	dump_shared_inodes(dest_inode);
+
+	mark_inode_dirty(dest_inode);
+	wakeup_flusher_threads(0, WB_REASON_SYNC); // FIXME: Remove
+
+unlock_file:
+	spin_unlock(&files->file_lock);
+	return ret;
+}
 
 long ext2_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -26,8 +79,9 @@ long ext2_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	int ret;
 
 	ext2_debug ("cmd = %u, arg = %lu\n", cmd, arg);
-
 	switch (cmd) {
+	case EXT2_IOC_COPY_ON_WRITE:
+		return ext2_cow_file(inode, arg);
 	case EXT2_IOC_GETFLAGS:
 		ext2_get_inode_flags(ei);
 		flags = ei->i_flags & EXT2_FL_USER_VISIBLE;

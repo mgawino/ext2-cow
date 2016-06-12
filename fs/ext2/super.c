@@ -192,6 +192,7 @@ static void init_once(void *foo)
 	init_rwsem(&ei->xattr_sem);
 #endif
 	mutex_init(&ei->truncate_mutex);
+	INIT_LIST_HEAD(&ei->shared_inodes);
 	inode_init_once(&ei->vfs_inode);
 }
 

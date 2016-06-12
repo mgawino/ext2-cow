@@ -15,6 +15,7 @@
 #include <linux/blockgroup_lock.h>
 #include <linux/percpu_counter.h>
 #include <linux/rbtree.h>
+#include <linux/list.h>
 
 /* XXX Here for now... not interested in restructing headers JUST now */
 
@@ -282,6 +283,7 @@ static inline __u32 ext2_mask_flags(umode_t mode, __u32 flags)
 #define	EXT2_IOC_SETVERSION		FS_IOC_SETVERSION
 #define	EXT2_IOC_GETRSVSZ		_IOR('f', 5, long)
 #define	EXT2_IOC_SETRSVSZ		_IOW('f', 6, long)
+#define EXT2_IOC_COPY_ON_WRITE  42  // FIXME
 
 /*
  * ioctl commands in 32 bit emulation
@@ -646,6 +648,11 @@ struct ext2_mount_options {
 	kgid_t s_resgid;
 };
 
+struct shared_inode {
+	struct list_head list;
+	struct inode * inode;
+};
+
 /*
  * second extended file system inode data in memory
  */
@@ -697,6 +704,7 @@ struct ext2_inode_info {
 #ifdef CONFIG_QUOTA
 	struct dquot *i_dquot[MAXQUOTAS];
 #endif
+    struct list_head shared_inodes;
 };
 
 /*
@@ -765,6 +773,7 @@ extern void ext2_set_inode_flags(struct inode *inode);
 extern void ext2_get_inode_flags(struct ext2_inode_info *);
 extern int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		       u64 start, u64 len);
+extern int ext2_update_shared_inodes(struct inode * source_inode, struct inode * dest_inode);
 
 /* ioctl.c */
 extern long ext2_ioctl(struct file *, unsigned int, unsigned long);
@@ -818,3 +827,11 @@ ext2_group_first_block_no(struct super_block *sb, unsigned long group_no)
 #define ext2_test_bit	test_bit_le
 #define ext2_find_first_zero_bit	find_first_zero_bit_le
 #define ext2_find_next_zero_bit		find_next_zero_bit_le
+
+// FIXME: Remove!!!!!
+
+#define S(X) printk(KERN_ERR X)
+#define LL(x) (long unsigned int) x
+
+extern void dump_inode(struct inode * inode, struct ext2_inode_info * info);
+extern void dump_shared_inodes(struct inode * inode);

@@ -32,6 +32,7 @@
 #include <linux/fiemap.h>
 #include <linux/namei.h>
 #include <linux/uio.h>
+#include <linux/list.h>
 #include "ext2.h"
 #include "acl.h"
 #include "xattr.h"
@@ -198,6 +199,50 @@ static int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
+void dump_chain(struct inode* inode, int depth, Indirect chain[4]) {
+	int i;
+	printk("dump_chain[%lu]: depth %d ", LL(inode->i_ino), depth);
+	for (i = 0; i < depth; ++i) {
+		printk(KERN_CONT "(Block: %lu) ", LL(chain[i].key));
+	}
+	printk(KERN_CONT "\n");
+}
+
+int is_block_shared(struct inode * inode, Indirect chain[4], int *offsets, int depth) {
+	struct buffer_head *bh;
+	struct shared_inode * shared;
+	struct ext2_inode_info * info = EXT2_I(inode);
+	struct list_head * ptr;
+	int temp_depth;
+	__le32 * p;
+
+	printk("is_block_shared[%lu]: start\n", LL(inode->i_ino));
+	dump_chain(inode, depth, chain);
+	list_for_each(ptr, &info->shared_inodes) {
+		shared = list_entry(ptr, struct shared_inode, list);
+		p = EXT2_I(shared->inode)->i_data + *offsets;
+		// FIXME: lock shared->inode->truncate_mutex ?
+		printk("is_block_shared[%lu]: shared inode -> %lu ", LL(inode->i_ino), LL(shared->inode->i_ino));
+		temp_depth = depth;
+		while (--temp_depth && *p) {
+			printk(KERN_CONT "(Block: %lu) ", LL(*p));
+			bh = sb_bread(shared->inode->i_sb, le32_to_cpu(*p));
+			if (!bh) {
+				goto fail_read;
+			}
+			p = (__le32*) bh->b_data + *++offsets;
+		}
+		printk(KERN_CONT "\n");
+		if (*p == chain[depth - 1].key) {
+			return 1;
+		}
+	}
+	return 0;
+fail_read:
+	// FIXME: do more?
+	return -EIO;
+}
+
 /**
  *	ext2_get_branch - read the chain of indirect blocks leading to data
  *	@inode: inode in question
@@ -231,12 +276,17 @@ static Indirect *ext2_get_branch(struct inode *inode,
 				 int depth,
 				 int *offsets,
 				 Indirect chain[4],
-				 int *err)
+				 int *err,
+				 int create)
 {
 	struct super_block *sb = inode->i_sb;
 	Indirect *p = chain;
 	struct buffer_head *bh;
+	struct ext2_inode_info * info = EXT2_I(inode);
+	int d = depth;
+	int ret;
 
+	printk("ext2_get_branch[%lu]: start\n", LL(inode->i_ino));
 	*err = 0;
 	/* i_data is not going away, no lock needed */
 	add_chain (chain, NULL, EXT2_I(inode)->i_data + *offsets);
@@ -254,16 +304,34 @@ static Indirect *ext2_get_branch(struct inode *inode,
 		if (!p->key)
 			goto no_block;
 	}
+	if (create && !list_empty(&info->shared_inodes)) {
+		ret = is_block_shared(inode, chain, offsets, d);
+		if (ret < 0) {
+			printk(KERN_ERR "ext2_get_branch[%lu]: ERRRRRROR\n", LL(inode->i_ino));
+			goto failure;
+		}
+		if (ret) {
+			printk("ext2_get_branch[%lu]: shared block -> %lu\n", LL(inode->i_ino), LL(chain[d-1].key));
+			goto no_block;
+		} else {
+			printk("ext2_get_branch[%lu]: NOT shared block -> %lu\n", LL(inode->i_ino), LL(chain[d-1].key));
+		}
+	} else {
+		printk("ext2_get_branch[%lu]: skip shared check\n", inode->i_ino);
+	}
 	return NULL;
 
 changed:
 	read_unlock(&EXT2_I(inode)->i_meta_lock);
 	brelse(bh);
 	*err = -EAGAIN;
+	printk("ext2_get_branch[%lu]: EAGAIN\n", LL(inode->i_ino));
 	goto no_block;
 failure:
+	printk("ext2_get_branch[%lu]: Failure\n", LL(inode->i_ino));
 	*err = -EIO;
 no_block:
+	printk("ext2_get_branch[%lu]: No block\n", LL(inode->i_ino));
 	return p;
 }
 
@@ -630,7 +698,6 @@ static int ext2_get_blocks(struct inode *inode,
 	struct ext2_inode_info *ei = EXT2_I(inode);
 	int count = 0;
 	ext2_fsblk_t first_block = 0;
-
 	BUG_ON(maxblocks == 0);
 
 	depth = ext2_block_to_path(inode,iblock,offsets,&blocks_to_boundary);
@@ -638,7 +705,7 @@ static int ext2_get_blocks(struct inode *inode,
 	if (depth == 0)
 		return (err);
 
-	partial = ext2_get_branch(inode, depth, offsets, chain, &err);
+	partial = ext2_get_branch(inode, depth, offsets, chain, &err, create);
 	/* Simplest case - block found, no allocation needed */
 	if (!partial) {
 		first_block = le32_to_cpu(chain[depth - 1].key);
@@ -667,8 +734,7 @@ static int ext2_get_blocks(struct inode *inode,
 		}
 		if (err != -EAGAIN)
 			goto got_it;
-	}
-
+	};
 	/* Next simple case - plain lookup or failed read of indirect block */
 	if (!create || err == -EIO)
 		goto cleanup;
@@ -691,7 +757,7 @@ static int ext2_get_blocks(struct inode *inode,
 			brelse(partial->bh);
 			partial--;
 		}
-		partial = ext2_get_branch(inode, depth, offsets, chain, &err);
+		partial = ext2_get_branch(inode, depth, offsets, chain, &err, create);
 		if (!partial) {
 			count++;
 			mutex_unlock(&ei->truncate_mutex);
@@ -765,14 +831,24 @@ cleanup:
 int ext2_get_block(struct inode *inode, sector_t iblock, struct buffer_head *bh_result, int create)
 {
 	unsigned max_blocks = bh_result->b_size >> inode->i_blkbits;
+	printk("ext2_get_block[%lu]: start, create -> %d\n", LL(inode->i_ino), create);
 	int ret = ext2_get_blocks(inode, iblock, max_blocks,
 			      bh_result, create);
+	if (ret == 0) {
+		printk("ext2_get_block[%lu]: lookup failed\n", LL(inode->i_ino));
+	} else if (ret > 0 && create) {
+		printk("ext2_get_block[%lu]: allocated %d blocks, first -> (%lu)\n",
+			   LL(inode->i_ino), ret, LL(bh_result->b_blocknr));
+	} else if (ret > 0 && !create) {
+		printk("ext2_get_block[%lu]: mapped %d blocks, first -> (%lu)\n", LL(inode->i_ino), ret, LL(bh_result->b_blocknr));
+	} else {
+		printk(KERN_ERR "ext2_get_block[%lu]: error %d\n", LL(inode->i_ino), ret);
+	}
 	if (ret > 0) {
 		bh_result->b_size = (ret << inode->i_blkbits);
 		ret = 0;
 	}
 	return ret;
-
 }
 
 int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
@@ -958,11 +1034,11 @@ static Indirect *ext2_find_shared(struct inode *inode,
 {
 	Indirect *partial, *p;
 	int k, err;
-
+	printk("ext2_find_shared[%lu]\n", LL(inode->i_ino));
 	*top = 0;
 	for (k = depth; k > 1 && !offsets[k-1]; k--)
 		;
-	partial = ext2_get_branch(inode, k, offsets, chain, &err);
+	partial = ext2_get_branch(inode, k, offsets, chain, &err, 0);
 	if (!partial)
 		partial = chain + k-1;
 	/*
@@ -1570,4 +1646,55 @@ int ext2_setattr(struct dentry *dentry, struct iattr *iattr)
 	mark_inode_dirty(inode);
 
 	return error;
+}
+
+void dump_inode(struct inode * inode, struct ext2_inode_info * info) {
+	int i;
+	printk("Size: %ld\n", LL(inode->i_size));
+	printk("Blocks: %ld\n", LL(inode->i_blocks));
+	i = 0;
+	for (i = 0; i < EXT2_N_BLOCKS; ++i) {
+		printk("Block %lu: %lu\n", LL(i), LL(info->i_data[i]));
+	}
+}
+
+void dump_shared_inodes(struct inode * inode) {
+	struct list_head *ptr;
+	struct shared_inode *entry;
+	struct ext2_inode_info * info = EXT2_I(inode);
+
+	printk("Shared inodes of %lu: ", LL(inode->i_ino));
+	list_for_each(ptr, &info->shared_inodes) {
+		entry = list_entry(ptr, struct shared_inode, list);
+		printk(KERN_CONT "%lu ", LL(entry->inode->i_ino));
+	}
+	printk(KERN_CONT "\n");
+}
+
+int ext2_update_shared_inodes(struct inode * source_inode, struct inode * dest_inode) {
+	struct ext2_inode_info * source_info;
+	struct ext2_inode_info * dest_info;
+	struct shared_inode * source_entry;
+	struct shared_inode * dest_entry;
+
+	source_entry = kmalloc(sizeof(struct shared_inode), GFP_KERNEL);
+	if (!source_entry) {
+		printk(KERN_ERR "Failed kmalloc while cow inodes\n");
+		return -ENOMEM;
+	}
+	dest_entry = kmalloc(sizeof(struct shared_inode), GFP_KERNEL);
+	if (!dest_entry) {
+		printk(KERN_ERR "Failed kmalloc while cow inodes\n");
+		kfree(source_entry);
+		return -ENOMEM;
+	}
+	source_info = EXT2_I(source_inode);
+	dest_info = EXT2_I(dest_inode);
+	source_entry->inode = source_inode;
+	dest_entry->inode = dest_inode;
+	// FIXME: Extend both list with corresponding elements (without repetitions)
+	list_add(&dest_entry->list, &source_info->shared_inodes);
+	list_add(&source_entry->list, &dest_info->shared_inodes);
+
+	return 0;
 }
