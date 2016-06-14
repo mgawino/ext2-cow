@@ -204,9 +204,7 @@ void dump_inode(struct inode * inode) {
 	struct list_head *ptr;
 	struct shared_inode *entry;
 	struct ext2_inode_info * info = EXT2_I(inode);
-	printk("Inode[%lu]", inode->i_ino);
-	printk("Size: %ld\n", LL(inode->i_size));
-	printk("Blocks: %ld\n", LL(inode->i_blocks));
+	printk("Inode[%lu]: Size -> %ld Blocks -> %ld\n", inode->i_ino, LL(inode->i_size), LL(inode->i_blocks));
 	i = 0;
 	printk("Blocks: ");
 	for (i = 0; i < EXT2_N_BLOCKS; ++i) {
@@ -238,23 +236,19 @@ int is_block_shared(struct inode * inode, Indirect chain[4], int *offsets, int d
 	int temp_depth;
 	__le32 * p;
 
-	printk("is_block_shared[%lu]: start\n", LL(inode->i_ino));
 	dump_chain(inode, depth, chain);
 	list_for_each(ptr, &info->shared_inodes) {
 		shared = list_entry(ptr, struct shared_inode, list);
 		p = EXT2_I(shared->inode)->i_data + *offsets;
 		// FIXME: lock shared->inode->truncate_mutex ?
-		printk("is_block_shared[%lu]: shared inode -> %lu ", LL(inode->i_ino), LL(shared->inode->i_ino));
 		temp_depth = depth;
 		while (--temp_depth && *p) {
-			printk(KERN_CONT "(Block: %lu) ", LL(*p));
 			bh = sb_bread(shared->inode->i_sb, le32_to_cpu(*p));
 			if (!bh) {
 				goto fail_read;
 			}
 			p = (__le32*) bh->b_data + *++offsets;
 		}
-		printk(KERN_CONT "\n");
 		if (*p == chain[depth - 1].key) {
 			return 1;
 		}
@@ -299,21 +293,34 @@ static Indirect *ext2_get_branch(struct inode *inode,
 				 int *offsets,
 				 Indirect chain[4],
 				 int *err,
-				 int create)
+				 int create,
+                 struct buffer_head ** buffer_to_copy)
 {
 	struct super_block *sb = inode->i_sb;
 	Indirect *p = chain;
 	struct buffer_head *bh;
-	struct ext2_inode_info * info = EXT2_I(inode);
-	int d = depth;
-	int ret;
+	int temp_depth = 0;
 
-	printk("ext2_get_branch[%lu]: start\n", LL(inode->i_ino));
+	printk("get_branch[%lu]: start\n", LL(inode->i_ino));
 	*err = 0;
 	/* i_data is not going away, no lock needed */
 	add_chain (chain, NULL, EXT2_I(inode)->i_data + *offsets);
-	if (!p->key)
+	if (!p->key) {
+		printk("get_branch[%lu]: No data\n", LL(inode->i_ino));
 		goto no_block;
+	}
+	temp_depth++;
+	/* Direct block cow */ // FIXME: handle errors
+	if(create && is_block_shared(inode, chain, offsets, temp_depth)){
+		printk("get_branch[%lu]: Shared direct block -> %lu\n", LL(inode->i_ino), LL(p->key));
+		dump_inode(inode);
+		dump_chain(inode, temp_depth, chain);
+		*buffer_to_copy = sb_bread(sb, le32_to_cpu(p->key));
+		*(p->p) = 0;
+		p->key = 0;
+		goto no_block;
+	}
+
 	while (--depth) {
 		bh = sb_bread(sb, le32_to_cpu(p->key));
 		if (!bh)
@@ -323,23 +330,20 @@ static Indirect *ext2_get_branch(struct inode *inode,
 			goto changed;
 		add_chain(++p, bh, (__le32*)bh->b_data + *++offsets);
 		read_unlock(&EXT2_I(inode)->i_meta_lock);
-		if (!p->key)
+		temp_depth++;
+		if (!p->key) {
 			goto no_block;
-	}
-	if (create && !list_empty(&info->shared_inodes)) {
-		ret = is_block_shared(inode, chain, offsets, d);
-		if (ret < 0) {
-			printk(KERN_ERR "ext2_get_branch[%lu]: ERRRRRROR\n", LL(inode->i_ino));
-			goto failure;
 		}
-		if (ret) {
-			printk("ext2_get_branch[%lu]: shared block -> %lu\n", LL(inode->i_ino), LL(chain[d-1].key));
+		// FIXME: handle errors
+		if (create && is_block_shared(inode, chain, offsets, temp_depth)) {
+			printk("get_branch[%lu]: Shared indirect block -> %lu\n", LL(inode->i_ino), LL(p->key));
+			dump_inode(inode);
+			dump_chain(inode, temp_depth, chain);
+			*buffer_to_copy = sb_bread(sb, le32_to_cpu(p->key));
+			*(p->p) = 0;
+			p->key = 0;
 			goto no_block;
-		} else {
-			printk("ext2_get_branch[%lu]: NOT shared block -> %lu\n", LL(inode->i_ino), LL(chain[d-1].key));
 		}
-	} else {
-		printk("ext2_get_branch[%lu]: skip shared check\n", inode->i_ino);
 	}
 	return NULL;
 
@@ -347,15 +351,13 @@ changed:
 	read_unlock(&EXT2_I(inode)->i_meta_lock);
 	brelse(bh);
 	*err = -EAGAIN;
-	printk("ext2_get_branch[%lu]: EAGAIN\n", LL(inode->i_ino));
+	printk("get_branch[%lu]: EAGAIN\n", LL(inode->i_ino));
 	goto no_block;
 failure:
-	printk("ext2_get_branch[%lu]: Failure\n", LL(inode->i_ino));
+	printk("get_branch[%lu]: Failure\n", LL(inode->i_ino));
 	*err = -EIO;
 no_block:
-	dump_inode(inode);
-	dump_chain(inode, d, chain);
-	printk("ext2_get_branch[%lu]: No block\n", LL(inode->i_ino));
+	printk("get_branch[%lu]: No block\n", LL(inode->i_ino));
 	return p;
 }
 
@@ -722,6 +724,7 @@ static int ext2_get_blocks(struct inode *inode,
 	struct ext2_inode_info *ei = EXT2_I(inode);
 	int count = 0;
 	ext2_fsblk_t first_block = 0;
+	struct buffer_head * buffer_to_copy = NULL;
 	BUG_ON(maxblocks == 0);
 
 	depth = ext2_block_to_path(inode,iblock,offsets,&blocks_to_boundary);
@@ -729,7 +732,7 @@ static int ext2_get_blocks(struct inode *inode,
 	if (depth == 0)
 		return (err);
 
-	partial = ext2_get_branch(inode, depth, offsets, chain, &err, create);
+	partial = ext2_get_branch(inode, depth, offsets, chain, &err, create, &buffer_to_copy);
 	/* Simplest case - block found, no allocation needed */
 	if (!partial) {
 		first_block = le32_to_cpu(chain[depth - 1].key);
@@ -781,7 +784,7 @@ static int ext2_get_blocks(struct inode *inode,
 			brelse(partial->bh);
 			partial--;
 		}
-		partial = ext2_get_branch(inode, depth, offsets, chain, &err, create);
+		partial = ext2_get_branch(inode, depth, offsets, chain, &err, create, &buffer_to_copy);
 		if (!partial) {
 			count++;
 			mutex_unlock(&ei->truncate_mutex);
@@ -835,6 +838,18 @@ static int ext2_get_blocks(struct inode *inode,
 	}
 
 	ext2_splice_branch(inode, iblock, partial, indirect_blks, count);
+	if (buffer_to_copy != NULL) {
+		lock_buffer(buffer_to_copy);
+		lock_buffer(chain[depth - 1].bh);
+		memcpy(chain[depth - 1].bh->b_data, buffer_to_copy->b_data, buffer_to_copy->b_size);
+		flush_dcache_page(chain[depth - 1].bh->b_page);
+		set_buffer_uptodate(chain[depth - 1].bh);
+		mark_buffer_dirty(chain[depth - 1].bh);
+		unlock_buffer(chain[depth - 1].bh);
+		unlock_buffer(buffer_to_copy);
+		sync_dirty_buffer(chain[depth - 1].bh);
+	}
+
 	mutex_unlock(&ei->truncate_mutex);
 	set_buffer_new(bh_result);
 got_it:
@@ -855,18 +870,18 @@ cleanup:
 int ext2_get_block(struct inode *inode, sector_t iblock, struct buffer_head *bh_result, int create)
 {
 	unsigned max_blocks = bh_result->b_size >> inode->i_blkbits;
-	printk("ext2_get_block[%lu]: start, create -> %d\n", LL(inode->i_ino), create);
+	printk("get_block[%lu]: start, create -> %d\n", LL(inode->i_ino), create);
 	int ret = ext2_get_blocks(inode, iblock, max_blocks,
 			      bh_result, create);
 	if (ret == 0) {
-		printk("ext2_get_block[%lu]: lookup failed\n", LL(inode->i_ino));
+		printk("get_block[%lu]: lookup failed\n", LL(inode->i_ino));
 	} else if (ret > 0 && create) {
-		printk("ext2_get_block[%lu]: allocated %d blocks, first -> (%lu)\n",
+		printk("get_block[%lu]: allocated %d blocks -> (%lu)\n",
 			   LL(inode->i_ino), ret, LL(bh_result->b_blocknr));
 	} else if (ret > 0 && !create) {
-		printk("ext2_get_block[%lu]: mapped %d blocks, first -> (%lu)\n", LL(inode->i_ino), ret, LL(bh_result->b_blocknr));
+		printk("get_block[%lu]: mapped %d blocks  -> (%lu)\n", LL(inode->i_ino), ret, LL(bh_result->b_blocknr));
 	} else {
-		printk(KERN_ERR "ext2_get_block[%lu]: error %d\n", LL(inode->i_ino), ret);
+		printk(KERN_ERR "get_block[%lu]: error %d\n", LL(inode->i_ino), ret);
 	}
 	if (ret > 0) {
 		bh_result->b_size = (ret << inode->i_blkbits);
@@ -1058,11 +1073,12 @@ static Indirect *ext2_find_shared(struct inode *inode,
 {
 	Indirect *partial, *p;
 	int k, err;
+	struct buffer_head * buf;
 	printk("ext2_find_shared[%lu]\n", LL(inode->i_ino));
 	*top = 0;
 	for (k = depth; k > 1 && !offsets[k-1]; k--)
 		;
-	partial = ext2_get_branch(inode, k, offsets, chain, &err, 0);
+	partial = ext2_get_branch(inode, k, offsets, chain, &err, 0, &buf);
 	if (!partial)
 		partial = chain + k-1;
 	/*
@@ -1202,7 +1218,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	n = ext2_block_to_path(inode, iblock, offsets, NULL);
 	if (n == 0)
 		return;
-
+	printk("truncate_blocks[%lu]: start\n", LL(inode->i_ino));
 	/*
 	 * From here we block out all ext2_get_block() callers who want to
 	 * modify the block allocation tree.
