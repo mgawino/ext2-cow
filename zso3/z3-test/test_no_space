@@ -1,0 +1,24 @@
+#!/bin/bash
+
+. ./settings.sh
+. ./lib.sh
+
+set -e
+
+before=$(free_space)
+$ddzero bs=1k count=$[ $before / 3 + 16 ] of=$MOUNT_POINT/testfile
+./ccp $MOUNT_POINT/testfile $MOUNT_POINT/testfile-copy1
+./ccp $MOUNT_POINT/testfile $MOUNT_POINT/testfile-copy2
+
+# this should succeed
+$ddzero bs=1k count=$[ $before / 3 + 16 ] of=$MOUNT_POINT/testfile-copy1 conv=notrunc
+
+set +e
+# and this should fail
+msg=$($ddzero bs=1k count=$[ $before / 3 + 16 ] of=$MOUNT_POINT/testfile-copy2 conv=notrunc 2>&1)
+
+set -e
+
+[[ "$msg" == *"No space left on device" ]]
+
+check_for_oops

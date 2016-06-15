@@ -1,0 +1,20 @@
+#!/bin/bash
+
+. ./settings.sh
+. ./lib.sh
+
+set -e
+
+truncate -s 1M $MOUNT_POINT/testfile
+./ccp $MOUNT_POINT/testfile $MOUNT_POINT/testfile-copy
+
+before=$(free_space)
+seq 2 1041 | dd status=none of=$MOUNT_POINT/testfile-copy seek=10 bs=4096 count=1 conv=notrunc
+after=$(free_space)
+
+some_blocks_allocated $before $after
+
+$ddzero bs=1M count=1 | diff - $MOUNT_POINT/testfile
+($ddzero bs=4096 count=10; seq 2 1041; $ddzero bs=4096 count=245) | diff - $MOUNT_POINT/testfile-copy
+
+check_for_oops

@@ -1,0 +1,3 @@
+set -x
+
+truncate /mnt/test_img/test2 -s 0

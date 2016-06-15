@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# Test for regressions vs unmodified driver
+
+. ./settings.sh
+. ./lib.sh
+
+set -e
+
+before=$(free_space)
+
+### normal file
+
+$ddzero of=$MOUNT_POINT/testfile bs=1M count=16
+$ddzero bs=1M count=16 | diff - $MOUNT_POINT/testfile
+rm -f $MOUNT_POINT/testfile
+after=$(free_space)
+
+# check for leaks
+[ $before -eq $after ]
+
+### sparse
+
+truncate -s 16M $MOUNT_POINT/testfile
+$ddzero bs=1M count=16 | diff - $MOUNT_POINT/testfile
+after=$(free_space)
+
+# check if sparse is really sparse
+no_blocks_allocated $before $after
+
+rm -f $MOUNT_POINT/testfile
+
+### writes to sparse
+
+truncate -s 1M $MOUNT_POINT/testfile
+seq 2 1041 | dd status=none of=$MOUNT_POINT/testfile seek=10 bs=4096 count=1 conv=notrunc
+($ddzero bs=4096 count=10; seq 2 1041; $ddzero bs=4096 count=245) | diff - $MOUNT_POINT/testfile
+
+after=$(free_space)
+
+some_blocks_allocated $before $after
+
+### check mmap
+
+before=$(free_space)
+
+# alocated block read
+./mmap-tool $MOUNT_POINT/testfile RDONLY PRIVATE read 40960 4096 | diff - <(seq 2 1041)
+./mmap-tool $MOUNT_POINT/testfile RDWR SHARED read 40960 4096 | diff - <(seq 2 1041)
+
+# unalocated block read
+./mmap-tool $MOUNT_POINT/testfile RDONLY PRIVATE read 4096 4096 | diff - <(head -c 4096 /dev/zero)
+./mmap-tool $MOUNT_POINT/testfile RDWR SHARED read 4096 4096 | diff - <(head -c 4096 /dev/zero)
+
+after=$(free_space)
+no_blocks_allocated $before $after
+
+# alocated block write
+seq 1041 -1 2 | ./mmap-tool $MOUNT_POINT/testfile RDWR SHARED write 40960 4096
+($ddzero bs=4096 count=10; seq 1041 -1 2; $ddzero bs=4096 count=245) | diff - $MOUNT_POINT/testfile
+
+after=$(free_space)
+no_blocks_allocated $before $after
+
+# unalocated block write
+seq 1041 -1 2 | ./mmap-tool $MOUNT_POINT/testfile RDWR SHARED write 4096 4096
+(head -c 4096 /dev/zero; seq 1041 -1 2; head -c $[ 8 * 4096 ] /dev/zero; seq 1041 -1 2; head -c $[ 245 * 4096 ] /dev/zero) | diff - $MOUNT_POINT/testfile
+
+after=$(free_space)
+some_blocks_allocated $before $after
+
+check_for_oops

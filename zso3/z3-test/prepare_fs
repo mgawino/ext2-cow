@@ -1,0 +1,10 @@
+#!/bin/sh
+
+. ./settings.sh
+
+umount $IMG 2>/dev/null ||:
+rm -f $IMG
+truncate -s $IMG_SZ $IMG
+mkfs.ext2 -q $1 -F $IMG || exit 1
+mkdir -p $MOUNT_POINT
+mount $IMG $MOUNT_POINT -o loop || exit 1
