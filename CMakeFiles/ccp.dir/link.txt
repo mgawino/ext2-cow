@@ -1,0 +1,1 @@
+/usr/bin/cc      CMakeFiles/ccp.dir/ccp.c.o  -o ccp -rdynamic 
