@@ -20,7 +20,8 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/kernel.h> // FIXME: Remove
-#include <linux/writeback.h> // FIXME: Remove
+#include <linux/buffer_head.h>
+#include <linux/writeback.h>
 
 
 int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
@@ -49,14 +50,18 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 	source_inode_info = EXT2_I(source_inode);
 	dest_inode_info = EXT2_I(dest_inode);
 
-	spin_lock(&dest_inode->i_lock);
+	// FIXME: DEADLOCK
+	// spin_lock(&dest_inode->i_lock);
+	// spin_lock(&source_inode->i_lock);
 	dest_inode->i_size = source_inode->i_size;
 	dest_inode->i_blocks = source_inode->i_blocks;
 	dest_inode->i_bytes = source_inode->i_bytes;
+	dest_inode_info->i_cow_inode_next = source_inode->i_ino;
+	source_inode_info->i_cow_inode_next = dest_inode->i_ino;
 	memcpy(dest_inode_info->i_data, source_inode_info->i_data, sizeof(source_inode_info->i_data));
-	spin_unlock(&dest_inode->i_lock);
-
-	ext2_update_shared_inodes(source_inode, dest_inode);
+	// FIXME: choose cow_leader
+	// spin_unlock(&source_inode->i_lock);
+	// spin_unlock(&dest_inode->i_lock);
 
 	S("IOCTL\n");
 	dump_inode(source_inode);
@@ -64,6 +69,7 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 
 	mark_inode_dirty(dest_inode);
 	mark_inode_dirty(source_inode);
+	wakeup_flusher_threads(0, WB_REASON_SYNC);
 
 unlock_file:
 	spin_unlock(&files->file_lock);

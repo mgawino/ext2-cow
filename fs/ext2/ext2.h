@@ -310,7 +310,7 @@ struct ext2_inode {
 	__le32	i_flags;	/* File flags */
 	union {
 		struct {
-			__le32  l_i_reserved1;
+			__le32  i_cow_inode_next;
 		} linux1;
 		struct {
 			__le32  h_i_translator;
@@ -331,7 +331,7 @@ struct ext2_inode {
 			__u16	i_pad1;
 			__le16	l_i_uid_high;	/* these 2 fields    */
 			__le16	l_i_gid_high;	/* were reserved2[0] */
-			__u32	l_i_reserved2;
+			__u32	i_cow_leader;
 		} linux2;
 		struct {
 			__u8	h_i_frag;	/* Fragment number */
@@ -352,14 +352,12 @@ struct ext2_inode {
 
 #define i_size_high	i_dir_acl
 
-#define i_reserved1	osd1.linux1.l_i_reserved1
 #define i_frag		osd2.linux2.l_i_frag
 #define i_fsize		osd2.linux2.l_i_fsize
 #define i_uid_low	i_uid
 #define i_gid_low	i_gid
 #define i_uid_high	osd2.linux2.l_i_uid_high
 #define i_gid_high	osd2.linux2.l_i_gid_high
-#define i_reserved2	osd2.linux2.l_i_reserved2
 
 /*
  * File system states
@@ -648,11 +646,6 @@ struct ext2_mount_options {
 	kgid_t s_resgid;
 };
 
-struct shared_inode {
-	struct list_head list;
-	struct inode * inode;
-};
-
 /*
  * second extended file system inode data in memory
  */
@@ -699,12 +692,16 @@ struct ext2_inode_info {
 	 * ext2_reserve_window_node.
 	 */
 	struct mutex truncate_mutex;
+
+	__le32 i_cow_inode_next;
+	__le32 i_cow_leader;
+	struct mutex i_cow_mutex;
+
 	struct inode	vfs_inode;
 	struct list_head i_orphan;	/* unlinked but open inodes */
 #ifdef CONFIG_QUOTA
 	struct dquot *i_dquot[MAXQUOTAS];
 #endif
-    struct list_head shared_inodes;
 };
 
 /*
@@ -773,7 +770,7 @@ extern void ext2_set_inode_flags(struct inode *inode);
 extern void ext2_get_inode_flags(struct ext2_inode_info *);
 extern int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		       u64 start, u64 len);
-extern int ext2_update_shared_inodes(struct inode * source_inode, struct inode * dest_inode);
+extern int is_block_shared(struct inode * inode, unsigned long block_no, int * offsets, int depth);
 
 /* ioctl.c */
 extern long ext2_ioctl(struct file *, unsigned int, unsigned long);

@@ -566,6 +566,8 @@ got:
 	ei->i_dir_start_lookup = 0;
 	ei->i_state = EXT2_STATE_NEW;
 	ext2_set_inode_flags(inode);
+	ei->i_cow_inode_next = 0;
+	ei->i_cow_leader = 0;
 	spin_lock(&sbi->s_next_gen_lock);
 	inode->i_generation = sbi->s_next_generation++;
 	spin_unlock(&sbi->s_next_gen_lock);

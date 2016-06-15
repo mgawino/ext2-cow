@@ -486,7 +486,7 @@ void ext2_free_blocks (struct inode * inode, unsigned long block,
 	struct ext2_sb_info * sbi = EXT2_SB(sb);
 	struct ext2_group_desc * desc;
 	struct ext2_super_block * es = sbi->s_es;
-	unsigned freed = 0, group_freed;
+	unsigned freed = 0, group_freed, cow_freed = 0;
 
 	if (block < le32_to_cpu(es->s_first_data_block) ||
 	    block + count < block ||
@@ -536,7 +536,13 @@ do_more:
 	}
 
 	for (i = 0, group_freed = 0; i < count; i++) {
-		if (!ext2_clear_bit_atomic(sb_bgl_lock(sbi, block_group),
+		printk("free_blocks[%lu]: free block -> %lu\n", LL(inode->i_ino), LL(block + i));
+		// FIXME
+		if (1/* is_block_shared(inode, block + i) */) {
+			printk("free_blocks[%lu]: cow free block -> %lu\n", LL(inode->i_ino), LL(block + i));
+			cow_freed++;
+			group_freed++;
+		} else if (!ext2_clear_bit_atomic(sb_bgl_lock(sbi, block_group),
 						bit + i, bitmap_bh->b_data)) {
 			ext2_error(sb, __func__,
 				"bit already cleared for block %lu", block + i);
@@ -545,12 +551,13 @@ do_more:
 		}
 	}
 
-	mark_buffer_dirty(bitmap_bh);
-	if (sb->s_flags & MS_SYNCHRONOUS)
-		sync_dirty_buffer(bitmap_bh);
-
-	group_adjust_blocks(sb, block_group, desc, bh2, group_freed);
-	freed += group_freed;
+	if (group_freed - cow_freed > 0) {
+		mark_buffer_dirty(bitmap_bh);
+		if (sb->s_flags & MS_SYNCHRONOUS)
+			sync_dirty_buffer(bitmap_bh);
+		group_adjust_blocks(sb, block_group, desc, bh2, group_freed - cow_freed);
+	}
+	freed += (group_freed - cow_freed);
 
 	if (overflow) {
 		block += count;
