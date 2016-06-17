@@ -25,43 +25,67 @@
 
 
 int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
-	int ret = 0;
+	int ret = 0, next_inode;
 	struct files_struct *files = current->files;
 	struct fdtable *fdt;
-	struct inode * source_inode;
-	struct file * source_file;
-	struct ext2_inode_info * source_inode_info;
-	struct ext2_inode_info * dest_inode_info;
+	struct inode *source_inode;
+	struct file *source_file;
+	struct ext2_inode_info * source_inode_info, * dest_inode_info, *temp_info;
+	struct inode * first_inode, * second_inode, * temp;
 
 	spin_lock(&files->file_lock);
 	fdt = files_fdtable(files);
 	if (source_fd > fdt->max_fds) {
-		printk(KERN_ERR "Invalid file descriptor\n");
+		printk(KERN_ERR
+		"Invalid file descriptor\n");
 		ret = -ENFILE;
 		goto unlock_file;
 	}
 	source_file = fdt->fd[source_fd];
 	if (!source_file) {
-		printk(KERN_ERR "File not found\n");
+		printk(KERN_ERR
+		"File not found\n");
 		ret = -ENOENT;
 		goto unlock_file;
 	}
 	source_inode = file_inode(source_file);
+
+	if (source_inode->i_ino < dest_inode->i_ino) {
+		first_inode = source_inode;
+		second_inode = dest_inode;
+	} else {
+		first_inode = dest_inode;
+		second_inode = source_inode;
+	}
+
+	// spin_lock(&first_inode->i_lock);
+	// spin_lock(&second_inode->i_lock);
+
 	source_inode_info = EXT2_I(source_inode);
 	dest_inode_info = EXT2_I(dest_inode);
 
-	// FIXME: DEADLOCK
-	// spin_lock(&dest_inode->i_lock);
-	// spin_lock(&source_inode->i_lock);
 	dest_inode->i_size = source_inode->i_size;
 	dest_inode->i_blocks = source_inode->i_blocks;
 	dest_inode->i_bytes = source_inode->i_bytes;
-	dest_inode_info->i_cow_inode_next = source_inode->i_ino;
+	dest_inode_info->i_cow_inode_next = source_inode_info->i_cow_inode_next;
 	source_inode_info->i_cow_inode_next = dest_inode->i_ino;
 	memcpy(dest_inode_info->i_data, source_inode_info->i_data, sizeof(source_inode_info->i_data));
+
+	if (source_inode_info->i_cow_leader == 0 ||
+			first_inode->i_ino < source_inode_info->i_cow_leader) {
+		source_inode_info->i_cow_leader = first_inode->i_ino;
+		next_inode = source_inode_info->i_cow_inode_next;
+		while (next_inode != source_inode->i_ino) {
+			temp = ext2_iget(source_inode->i_sb, next_inode);
+			temp_info = EXT2_I(temp);
+			temp_info->i_cow_leader = first_inode->i_ino;
+			next_inode = temp_info->i_cow_inode_next;
+			mark_inode_dirty(temp);
+		}
+	}
+	// spin_unlock(&second_inode->i_lock);
+	// spin_unlock(&first_inode->i_lock);
 	// FIXME: choose cow_leader
-	// spin_unlock(&source_inode->i_lock);
-	// spin_unlock(&dest_inode->i_lock);
 
 	S("IOCTL\n");
 	dump_inode(source_inode);

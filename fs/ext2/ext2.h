@@ -731,7 +731,7 @@ extern ext2_fsblk_t ext2_new_block(struct inode *, unsigned long, int *);
 extern ext2_fsblk_t ext2_new_blocks(struct inode *, unsigned long,
 				unsigned long *, int *);
 extern void ext2_free_blocks (struct inode *, unsigned long,
-			      unsigned long, int *, int);
+			      unsigned long);
 extern unsigned long ext2_count_free_blocks (struct super_block *);
 extern unsigned long ext2_count_dirs (struct super_block *);
 extern void ext2_check_blocks_bitmap (struct super_block *);

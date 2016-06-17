@@ -6,6 +6,6 @@ set -x
 head -c $[ 12 * 1024 + 256 * 1024 + 2 * 256 * 1024 ] /dev/zero > /mnt/test_img/test
 ./ccp /mnt/test_img/test /mnt/test_img/test2
 
-size1=$((12 * 1024 + 256 * 1024 + 256 * 1024)) // 256 * 1024 blocks freed
+size1=`echo "12 * 1024 + 256 * 1024 + 256 * 1024" | bc` # 256 * 1024 blocks freed
 
-truncate /mnt/test_img/test2 -s $size1
+# truncate /mnt/test_img/test2 -s $size1
