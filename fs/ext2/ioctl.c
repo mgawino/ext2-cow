@@ -58,9 +58,6 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 		second_inode = source_inode;
 	}
 
-	// spin_lock(&first_inode->i_lock);
-	// spin_lock(&second_inode->i_lock);
-
 	source_inode_info = EXT2_I(source_inode);
 	dest_inode_info = EXT2_I(dest_inode);
 
@@ -83,9 +80,6 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 			mark_inode_dirty(temp);
 		}
 	}
-	// spin_unlock(&second_inode->i_lock);
-	// spin_unlock(&first_inode->i_lock);
-	// FIXME: choose cow_leader
 
 	S("IOCTL\n");
 	dump_inode(source_inode);

@@ -335,6 +335,7 @@ static Indirect *ext2_get_branch(struct inode *inode,
 	Indirect *p = chain;
 	struct buffer_head *bh;
 	int temp_depth = depth;
+	printk("get_branch[%lu]: start, depth -> \n", LL(inode->i_ino));
 
 	*err = 0;
 	/* i_data is not going away, no lock needed */
@@ -343,7 +344,7 @@ static Indirect *ext2_get_branch(struct inode *inode,
 		goto no_block;
 	}
 
-	while (--depth) {
+	while (--temp_depth) {
 		bh = sb_bread(sb, le32_to_cpu(p->key));
 		if (!bh)
 			goto failure;
@@ -356,20 +357,23 @@ static Indirect *ext2_get_branch(struct inode *inode,
 			goto no_block;
 		}
 	}
-	depth = temp_depth;
-
-	read_lock(&EXT2_I(inode)->i_meta_lock);
-
-	if (create && is_block_shared(inode, p->key, offsets, depth)) {
-		*cow = 1;
-		memcpy(*chain_to_copy, chain, 4 * sizeof(Indirect));
-		while (is_block_shared(inode, chain[depth - 1].key, offsets, depth)) {
-			p = chain + (depth - 1);
-			chain[depth - 1].key = 0;
-			depth--;
+	temp_depth = depth;
+	// TODO: locks
+	if (create) {
+		if (is_block_shared(inode, p->key, offsets, depth)) {
+			memcpy(*chain_to_copy, chain, 4 * sizeof(Indirect));
+			p->key = 0;
+			(*chain_to_copy) += (temp_depth - 1);
+			*cow = 1;
 		}
-		read_unlock(&EXT2_I(inode)->i_meta_lock);
-		goto no_block;
+		while (--temp_depth && is_block_shared(inode, chain[temp_depth - 1].key, offsets, depth)) {
+			p--;
+			p->key = 0;
+			(*chain_to_copy)--;
+		}
+		if (*cow) {
+			goto no_block;
+		}
 	}
 
 	read_unlock(&EXT2_I(inode)->i_meta_lock);
@@ -380,10 +384,13 @@ changed:
 	read_unlock(&EXT2_I(inode)->i_meta_lock);
 	brelse(bh);
 	*err = -EAGAIN;
+	printk("get_branch[%lu]: Changed\n", inode->i_ino);
 	goto no_block;
 failure:
+	printk("get_branch[%lu]: Failure\n", inode->i_ino);
 	*err = -EIO;
 no_block:
+	printk("get_branch[%lu]: No block\n", inode->i_ino);
 	return p;
 }
 
@@ -718,8 +725,10 @@ static void ext2_splice_branch(struct inode *inode,
 
 void copy_chain(struct inode * inode, Indirect * partial, Indirect * to_copy_partial, int blocks) {
 	while (blocks--) {
-		lock_buffer(partial->bh);
-		lock_buffer(to_copy_partial->bh);
+		printk("copy_chain[%lu]: copy block %lu to block %lu\n",
+			   LL(inode->i_ino), LL(to_copy_partial->bh->b_blocknr), LL(partial->bh->b_blocknr));
+//		lock_buffer(partial->bh);
+//		lock_buffer(to_copy_partial->bh);
 
 		memcpy(partial->bh->b_data, to_copy_partial->bh->b_data,
 			   to_copy_partial->bh->b_size);
@@ -727,8 +736,8 @@ void copy_chain(struct inode * inode, Indirect * partial, Indirect * to_copy_par
 		set_buffer_uptodate(partial->bh);
 		mark_buffer_dirty(partial->bh);
 
-		unlock_buffer(partial->bh);
-		unlock_buffer(to_copy_partial->bh);
+//		unlock_buffer(partial->bh);
+//		unlock_buffer(to_copy_partial->bh);
 		sync_dirty_buffer(partial->bh);
 		partial++;
 		to_copy_partial++;
@@ -771,6 +780,8 @@ static int ext2_get_blocks(struct inode *inode,
 	int count = 0;
 	ext2_fsblk_t first_block = 0;
 	BUG_ON(maxblocks == 0);
+
+	memset(offsets, 0, 4);
 
 	depth = ext2_block_to_path(inode,iblock,offsets,&blocks_to_boundary);
 
@@ -825,6 +836,7 @@ static int ext2_get_blocks(struct inode *inode,
 	 * splice the branch into the tree.
 	 */
 	if (err == -EAGAIN || !verify_chain(chain, partial)) {
+		printk("SHIT\n");
 		while (partial > chain) {
 			brelse(partial->bh);
 			partial--;
@@ -838,6 +850,10 @@ static int ext2_get_blocks(struct inode *inode,
 			clear_buffer_new(bh_result);
 			goto got_it;
 		}
+	}
+
+	if (cow) {
+		mpage_readpage(bh_result->b_page, ext2_get_block);
 	}
 
 	/*

@@ -9,8 +9,11 @@ head -c $[ 16 * 1024 * 1024 ] /dev/zero > $MOUNT_POINT/testfile
 
 before=$(free_space)
 ./ccp $MOUNT_POINT/testfile $MOUNT_POINT/testfile-copy1
+sleep 1
 ./ccp $MOUNT_POINT/testfile $MOUNT_POINT/testfile-copy2
+sleep 1
 ./ccp $MOUNT_POINT/testfile $MOUNT_POINT/testfile-copy3
+sleep 1
 after=$(free_space)
 
 no_blocks_allocated $before $after

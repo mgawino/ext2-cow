@@ -24,7 +24,7 @@ int main(int argc, char * argv[]) {
         exit(1);
     }
     if (ioctl(output_fd, 42, input_fd) < 0) {
-        fprintf(stderr, "Failed ioctl\n");
+        perror("Failed ioctl");
         exit(1);
     }
     return 0;
