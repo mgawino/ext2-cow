@@ -18,6 +18,8 @@
 #include <linux/buffer_head.h>
 #include <linux/capability.h>
 
+#define DEBUG 0
+
 /*
  * balloc.c contains the blocks allocation and deallocation routines
  */
@@ -498,7 +500,7 @@ void ext2_free_blocks (struct inode * inode, unsigned long block,
 	}
 
 	ext2_debug ("freeing block(s) %lu-%lu\n", block, block + count - 1);
-	printk("free_blocks[%lu]: %lu-%lu, count -> %lu\n", LL(inode->i_ino), LL(block), LL(block + count - 1), count);
+	if (DEBUG) printk("free_blocks[%lu]: %lu-%lu, count -> %lu\n", LL(inode->i_ino), LL(block), LL(block + count - 1), count);
 
 do_more:
 	overflow = 0;
