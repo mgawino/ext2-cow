@@ -78,6 +78,7 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 			temp_info->i_cow_leader = first_inode->i_ino;
 			next_inode = temp_info->i_cow_inode_next;
 			mark_inode_dirty(temp);
+			iput(temp);
 		}
 	}
 
