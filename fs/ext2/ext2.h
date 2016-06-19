@@ -827,9 +827,4 @@ ext2_group_first_block_no(struct super_block *sb, unsigned long group_no)
 #define ext2_find_first_zero_bit	find_first_zero_bit_le
 #define ext2_find_next_zero_bit		find_next_zero_bit_le
 
-// FIXME: Remove!!!!!
-
-#define S(X) printk(KERN_ERR X)
 #define LL(x) (long unsigned int) x
-
-extern void dump_inode(struct inode * inode);

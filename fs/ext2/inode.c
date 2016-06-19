@@ -250,8 +250,19 @@ void dump_chain(struct inode* inode, int depth, Indirect chain[4]) {
 	if (DEBUG) printk(KERN_CONT "\n");
 }
 
+
+int tree_size(int depth, int addr_per_block, int blocksize, int * offsets) {
+	int size = 0;
+	int multiplier = blocksize;
+	while (depth) {
+		size += (offsets[depth] * multiplier);
+		multiplier *= addr_per_block;
+		depth--;
+	}
+	return size + blocksize;
+}
+
 int offsets_to_size(struct inode * inode, int * offsets, int depth) {
-	// TODO: refactor
 	int size = 0;
 	int blocksize = EXT2_BLOCK_SIZE(inode->i_sb);
 	int addr_per_block = EXT2_ADDR_PER_BLOCK(inode->i_sb);
@@ -260,19 +271,16 @@ int offsets_to_size(struct inode * inode, int * offsets, int depth) {
 	}
 	size = blocksize * (EXT2_IND_BLOCK - 1);
 	if (offsets[0] == EXT2_IND_BLOCK) {
-		size += ((offsets[1] + 1) * blocksize);
+		size += tree_size(1, addr_per_block, blocksize, offsets);
 		return size;
 	}
 	size += addr_per_block * blocksize;
 	if (offsets[0] == EXT2_DIND_BLOCK) {
-		size += (offsets[1] * addr_per_block * blocksize); // full blocks
-		size += ((offsets[2] + 1) * blocksize);
+		size += tree_size(2, addr_per_block, blocksize, offsets);
 		return size;
 	}
 	size += addr_per_block * addr_per_block * blocksize;
-	size += (offsets[1] * addr_per_block * addr_per_block * blocksize);
-	size += (offsets[2] * addr_per_block * blocksize);
-	size += ((offsets[3] + 1) * blocksize);
+	size += tree_size(3, addr_per_block, blocksize, offsets);
 	return size;
 }
 
@@ -354,8 +362,6 @@ static Indirect * ext2_get_branch(struct inode *inode,
 	int * off = offsets;
 	struct buffer_head *bh;
 	int temp_depth = depth;
-//	if (DEBUG) printk("get_branch[%lu]: start, depth -> %lu, Offsets -> (%lu, %lu, %lu, %lu)\n",
-//					  LL(inode->i_ino), LL(depth), LL(offsets[0]), LL(offsets[1]), LL(offsets[2]), LL(offsets[3]));
 	*err = 0;
 	/* i_data is not going away, no lock needed */
 	add_chain (chain, NULL, EXT2_I(inode)->i_data + *off);
@@ -743,6 +749,7 @@ void copy_indirect_chain(struct inode *inode, Indirect *partial, Indirect *parti
 		source = sb_bread(inode->i_sb, partial_to_copy->key);
 		lock_buffer(dest);
 		memcpy(dest->b_data, source->b_data, source->b_size);
+		*partial->p = partial->key;
 		unlock_buffer(dest);
 		flush_dcache_page(dest->b_page);
 		set_buffer_uptodate(dest);
@@ -1311,7 +1318,6 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 	partial = ext2_find_shared(inode, n, temp_offsets, chain, &nr);
 	/* Kill the top of shared branch (already detached) */
 	if (nr) {
-		if (DEBUG) printk("truncate_blocks[%lu]: kill top branch %lu\n", LL(inode->i_ino), LL(nr));
 		if (partial == chain)
 			mark_inode_dirty(inode);
 		else

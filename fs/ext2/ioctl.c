@@ -35,22 +35,18 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 	spin_lock(&files->file_lock);
 	fdt = files_fdtable(files);
 	if (source_fd > fdt->max_fds) {
-		printk(KERN_ERR
-		"Invalid file descriptor\n");
 		ret = -ENFILE;
 		goto unlock_file;
 	}
 	source_file = fdt->fd[source_fd];
 	if (!source_file) {
-		printk(KERN_ERR
-		"File not found\n");
 		ret = -ENOENT;
 		goto unlock_file;
 	}
 	source_inode = file_inode(source_file);
 
 	mutex_lock(&EXT2_SB(source_inode->i_sb)->s_cow_mutex);
-	// spin_lock(&dest_inode->i_lock);
+	spin_lock(&dest_inode->i_lock);
 
 	source_info = EXT2_I(source_inode);
 	dest_info = EXT2_I(dest_inode);
@@ -66,18 +62,11 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 	if (source_info->i_cow_inode_prev == source_inode->i_ino) {
 		source_info->i_cow_inode_prev = dest_inode->i_ino;
 	}
-	// spin_unlock(&dest_inode->i_lock);
+	spin_unlock(&dest_inode->i_lock);
+	mutex_unlock(&EXT2_SB(source_inode->i_sb)->s_cow_mutex);
 
 	mark_inode_dirty(dest_inode);
 	mark_inode_dirty(source_inode);
-	mutex_unlock(&EXT2_SB(source_inode->i_sb)->s_cow_mutex);
-
-
-	S("IOCTL\n");
-	dump_inode(source_inode);
-	dump_inode(dest_inode);
-
-	 wakeup_flusher_threads(0, WB_REASON_SYNC);
 
 unlock_file:
 	spin_unlock(&files->file_lock);
