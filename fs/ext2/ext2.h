@@ -284,7 +284,7 @@ static inline __u32 ext2_mask_flags(umode_t mode, __u32 flags)
 #define	EXT2_IOC_SETVERSION		FS_IOC_SETVERSION
 #define	EXT2_IOC_GETRSVSZ		_IOR('f', 5, long)
 #define	EXT2_IOC_SETRSVSZ		_IOW('f', 6, long)
-#define EXT2_IOC_COPY_ON_WRITE  42  // FIXME
+#define EXT2_IOC_COPY_ON_WRITE  _IOW('f', 7, long)
 
 /*
  * ioctl commands in 32 bit emulation
