@@ -219,38 +219,6 @@ int ext2_block_to_path(struct inode *inode,
 	return n;
 }
 
-void dump_inode(struct inode * inode) {
-	int i, next_inode;
-	struct ext2_inode_info * info = EXT2_I(inode);
-	struct inode * temp_inode;
-	printk("Inode[%lu]: Size -> %ld Blocks -> %ld\n", inode->i_ino, LL(inode->i_size), LL(inode->i_blocks));
-	i = 0;
-	printk("Blocks: ");
-	for (i = 0; i < EXT2_N_BLOCKS; ++i) {
-		printk(KERN_CONT "(%lu) ", LL(info->i_data[i]));
-	}
-	printk(KERN_CONT "\n");
-	printk("Shared inodes: ");
-	next_inode = info->i_cow_inode_next;
-	while (next_inode != inode->i_ino) {
-		printk(KERN_CONT "%lu ", LL(next_inode));
-		temp_inode = ext2_iget(inode->i_sb, next_inode);
-		next_inode = EXT2_I(temp_inode)->i_cow_inode_next;
-		iput(temp_inode);
-	}
-	printk("\n");
-}
-
-void dump_chain(struct inode* inode, int depth, Indirect chain[4]) {
-	int i;
-	if (DEBUG) printk("dump_chain[%lu]: depth %d ", LL(inode->i_ino), depth);
-	for (i = 0; i < depth; ++i) {
-		if (DEBUG) printk(KERN_CONT "(Block: %lu) ", LL(chain[i].key));
-	}
-	if (DEBUG) printk(KERN_CONT "\n");
-}
-
-
 int tree_size(int depth, int addr_per_block, int blocksize, int * offsets) {
 	int size = 0;
 	int multiplier = blocksize;
@@ -294,9 +262,6 @@ int is_block_shared(struct inode * inode, unsigned long block_no, int * offsets,
 	int err;
 	Indirect chain[4];
 	Indirect * partial;
-
-	if (DEBUG) printk("is_block_shared[%lu]: Block -> %lu Offsets -> (%lu, %lu, %lu, %lu) Depth -> %lu\n",
-		   LL(inode->i_ino), LL(block_no), LL(offsets[0]), LL(offsets[1]), LL(offsets[2]), LL(offsets[3]), LL(depth));
 
 	next_inode = EXT2_I(inode)->i_cow_inode_next;
 	while(next_inode != inode->i_ino) {
@@ -837,7 +802,6 @@ static int ext2_get_blocks(struct inode *inode,
 		goto cleanup;
 
 	mutex_lock(&ei->truncate_mutex);
-	// mutex_lock(&EXT2_SB(inode->i_sb)->s_cow_truncate_mutex);
 	/*
 	 * If the indirect block is missing while we are reading
 	 * the chain(ext2_get_branch() returns -EAGAIN err), or
@@ -858,7 +822,6 @@ static int ext2_get_blocks(struct inode *inode,
 		partial = ext2_get_branch(inode, depth, offsets, chain, &err, create, &cow, &partial_to_copy);
 		if (!partial) {
 			count++;
-			// mutex_unlock(&EXT2_SB(inode->i_sb)->s_cow_truncate_mutex);
 			mutex_unlock(&ei->truncate_mutex);
 			if (err)
 				goto cleanup;
@@ -884,8 +847,6 @@ static int ext2_get_blocks(struct inode *inode,
 	 */
 	count = ext2_blks_to_allocate(partial, indirect_blks,
 					maxblocks, blocks_to_boundary);
-//	if (DEBUG) printk("get_blocks[%lu]: allocating blocks: indirect -> %lu, direct -> %lu\n",
-//	       LL(inode->i_ino), LL(indirect_blks), LL(count));
 	/*
 	 * XXX ???? Block out ext2_truncate while we alter the tree
 	 */
@@ -893,7 +854,6 @@ static int ext2_get_blocks(struct inode *inode,
 				offsets + (partial - chain), partial);
 
 	if (err) {
-		// mutex_unlock(&EXT2_SB(inode->i_sb)->s_cow_truncate_mutex);
 		mutex_unlock(&ei->truncate_mutex);
 		goto cleanup;
 	}
@@ -907,7 +867,6 @@ static int ext2_get_blocks(struct inode *inode,
 		err = dax_clear_blocks(inode, le32_to_cpu(chain[depth-1].key),
 						1 << inode->i_blkbits);
 		if (err) {
-			// mutex_unlock(&EXT2_SB(inode->i_sb)->s_cow_truncate_mutex);
 			mutex_unlock(&ei->truncate_mutex);
 			goto cleanup;
 		}
@@ -919,7 +878,6 @@ static int ext2_get_blocks(struct inode *inode,
 		copy_indirect_chain(inode, partial, partial_to_copy, indirect_blks);
 	}
 
-	// mutex_unlock(&EXT2_SB(inode->i_sb)->s_cow_truncate_mutex);
 	mutex_unlock(&ei->truncate_mutex);
 	set_buffer_new(bh_result);
 got_it:
@@ -1190,9 +1148,6 @@ static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q, int
 	unsigned long block_to_free = 0, count = 0;
 	unsigned long nr;
 
-	if (DEBUG) printk("free_data[%lu]: Offsets -> (%lu, %lu, %lu, %lu) Depth -> %lu\n",
-		   LL(inode->i_ino), LL(offsets[0]), LL(offsets[1]), LL(offsets[2]), LL(offsets[3]), LL(depth));
-
 	for ( ; p < q ; p++) {
 		nr = le32_to_cpu(*p);
 		if (nr && !is_block_shared(inode, *p, offsets, depth)) {
@@ -1235,8 +1190,6 @@ static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q,
 {
 	struct buffer_head * bh;
 	unsigned long nr;
-	if (DEBUG) printk("free_branches[%lu]: Offsets -> (%lu, %lu, %lu, %lu) Depth -> %lu Act Depth -> %lu\n",
-		   LL(inode->i_ino), LL(offsets[0]), LL(offsets[1]), LL(offsets[2]), LL(offsets[3]), LL(depth), LL(act_depth));
 
 	if (depth--) {
 		int addr_per_block = EXT2_ADDR_PER_BLOCK(inode->i_sb);
@@ -1299,14 +1252,11 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 
 	if (n == 0)
 		return;
-	printk("truncate_blocks[%lu]: start, depth-> %lu, size -> %lu, offsets -> (%lu, %lu, %lu, %lu)\n",
-		   LL(inode->i_ino), LL(n), LL(offset), LL(offsets[0]), LL(offsets[1]), LL(offsets[2]), LL(offsets[3]));
 	/*
 	 * From here we block out all ext2_get_block() callers who want to
 	 * modify the block allocation tree.
 	 */
 	mutex_lock(&ei->truncate_mutex);
-	// mutex_lock(&EXT2_SB(inode->i_sb)->s_cow_truncate_mutex);
 
 	if (n == 1) {
 		ext2_free_data(inode, i_data+offsets[0],
@@ -1332,8 +1282,6 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 		depth = partial - chain;
 		indirect_offset = ((partial->p + 1) - (__le32*) partial->bh->b_data);
 		temp_offsets[depth] = indirect_offset;
-		if (DEBUG) printk("truncate_blocks[%lu]: clear end of indirect, depth -> %lu, indirect_offset -> %lu\n",
-			   LL(inode->i_ino), LL(depth), LL(indirect_offset));
 		ext2_free_branches(inode,
 				   partial->p + 1,
 				   (__le32*)partial->bh->b_data+addr_per_block,
@@ -1351,7 +1299,6 @@ do_indirects:
 		default:
 			nr = i_data[EXT2_IND_BLOCK];
 			if (nr) {
-				if (DEBUG) printk("truncate_blocks[%lu]: indirect block\n", LL(inode->i_ino));
 				temp_offsets[0] = EXT2_IND_BLOCK;
 				if (!is_block_shared(inode, nr, temp_offsets, 1)) {
 					i_data[EXT2_IND_BLOCK] = 0;
@@ -1363,7 +1310,6 @@ do_indirects:
 		case EXT2_IND_BLOCK:
 			nr = i_data[EXT2_DIND_BLOCK];
 			if (nr) {
-				if (DEBUG) printk("truncate_blocks[%lu]: double indirect block\n", LL(inode->i_ino));
 				temp_offsets[0] = EXT2_DIND_BLOCK;
 				if (!is_block_shared(inode, nr, temp_offsets, 1)) {
 					i_data[EXT2_DIND_BLOCK] = 0;
@@ -1375,7 +1321,6 @@ do_indirects:
 		case EXT2_DIND_BLOCK:
 			nr = i_data[EXT2_TIND_BLOCK];
 			if (nr) {
-				if (DEBUG) printk("truncate_blocks[%lu]: triple indirect block\n", LL(inode->i_ino));
 				temp_offsets[0] = EXT2_TIND_BLOCK;
 				if (!is_block_shared(inode, nr, temp_offsets, 1)) {
 					i_data[EXT2_TIND_BLOCK] = 0;
@@ -1391,7 +1336,6 @@ do_indirects:
 	mark_inode_dirty(inode);
 
 	ext2_discard_reservation(inode);
-	// mutex_unlock(&EXT2_SB(inode->i_sb)->s_cow_truncate_mutex);
 	mutex_unlock(&ei->truncate_mutex);
 }
 

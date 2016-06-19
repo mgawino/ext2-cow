@@ -19,9 +19,7 @@
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
-#include <linux/kernel.h> // FIXME: Remove
 #include <linux/buffer_head.h>
-#include <linux/writeback.h>
 
 
 int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {

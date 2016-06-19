@@ -113,7 +113,6 @@ struct ext2_sb_info {
 	 */
 	spinlock_t s_lock;
 	struct mutex s_cow_mutex;
-	struct mutex s_cow_truncate_mutex;
 };
 
 static inline spinlock_t *

@@ -809,7 +809,6 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 
 	spin_lock_init(&sbi->s_lock);
 	mutex_init(&sbi->s_cow_mutex);
-	mutex_init(&sbi->s_cow_truncate_mutex);
 
 	/*
 	 * See what the current blocksize for the device is, and
