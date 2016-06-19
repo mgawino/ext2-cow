@@ -25,13 +25,12 @@
 
 
 int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
-	int ret = 0, next_inode;
+	int ret = 0;
 	struct files_struct *files = current->files;
 	struct fdtable *fdt;
 	struct inode *source_inode;
 	struct file *source_file;
-	struct ext2_inode_info * source_inode_info, * dest_inode_info, *temp_info;
-	struct inode * first_inode, * second_inode, * temp;
+	struct ext2_inode_info * source_info, * dest_info;
 
 	spin_lock(&files->file_lock);
 	fdt = files_fdtable(files);
@@ -50,45 +49,35 @@ int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {
 	}
 	source_inode = file_inode(source_file);
 
-	if (source_inode->i_ino < dest_inode->i_ino) {
-		first_inode = source_inode;
-		second_inode = dest_inode;
-	} else {
-		first_inode = dest_inode;
-		second_inode = source_inode;
-	}
+	mutex_lock(&EXT2_SB(source_inode->i_sb)->s_cow_mutex);
+	// spin_lock(&dest_inode->i_lock);
 
-	source_inode_info = EXT2_I(source_inode);
-	dest_inode_info = EXT2_I(dest_inode);
+	source_info = EXT2_I(source_inode);
+	dest_info = EXT2_I(dest_inode);
 
 	dest_inode->i_size = source_inode->i_size;
 	dest_inode->i_blocks = source_inode->i_blocks;
 	dest_inode->i_bytes = source_inode->i_bytes;
-	dest_inode_info->i_cow_inode_next = source_inode_info->i_cow_inode_next;
-	source_inode_info->i_cow_inode_next = dest_inode->i_ino;
-	memcpy(dest_inode_info->i_data, source_inode_info->i_data, sizeof(source_inode_info->i_data));
+	memcpy(dest_info->i_data, source_info->i_data, sizeof(source_info->i_data));
 
-	if (source_inode_info->i_cow_leader == 0 ||
-			first_inode->i_ino < source_inode_info->i_cow_leader) {
-		source_inode_info->i_cow_leader = first_inode->i_ino;
-		next_inode = source_inode_info->i_cow_inode_next;
-		while (next_inode != source_inode->i_ino) {
-			temp = ext2_iget(source_inode->i_sb, next_inode);
-			temp_info = EXT2_I(temp);
-			temp_info->i_cow_leader = first_inode->i_ino;
-			next_inode = temp_info->i_cow_inode_next;
-			mark_inode_dirty(temp);
-			iput(temp);
-		}
+	dest_info->i_cow_inode_prev = source_inode->i_ino;
+	dest_info->i_cow_inode_next = source_info->i_cow_inode_next;
+	source_info->i_cow_inode_next = dest_inode->i_ino;
+	if (source_info->i_cow_inode_prev == source_inode->i_ino) {
+		source_info->i_cow_inode_prev = dest_inode->i_ino;
 	}
+	// spin_unlock(&dest_inode->i_lock);
+
+	mark_inode_dirty(dest_inode);
+	mark_inode_dirty(source_inode);
+	mutex_unlock(&EXT2_SB(source_inode->i_sb)->s_cow_mutex);
+
 
 	S("IOCTL\n");
 	dump_inode(source_inode);
 	dump_inode(dest_inode);
 
-	mark_inode_dirty(dest_inode);
-	mark_inode_dirty(source_inode);
-	wakeup_flusher_threads(0, WB_REASON_SYNC);
+	 wakeup_flusher_threads(0, WB_REASON_SYNC);
 
 unlock_file:
 	spin_unlock(&files->file_lock);

@@ -112,6 +112,8 @@ struct ext2_sb_info {
 	 * of the mount options.
 	 */
 	spinlock_t s_lock;
+	struct mutex s_cow_mutex;
+	struct mutex s_cow_truncate_mutex;
 };
 
 static inline spinlock_t *
@@ -331,7 +333,7 @@ struct ext2_inode {
 			__u16	i_pad1;
 			__le16	l_i_uid_high;	/* these 2 fields    */
 			__le16	l_i_gid_high;	/* were reserved2[0] */
-			__u32	i_cow_leader;
+			__u32	i_cow_inode_prev;
 		} linux2;
 		struct {
 			__u8	h_i_frag;	/* Fragment number */
@@ -694,7 +696,7 @@ struct ext2_inode_info {
 	struct mutex truncate_mutex;
 
 	__le32 i_cow_inode_next;
-	__le32 i_cow_leader;
+	__le32 i_cow_inode_prev;
 	struct mutex i_cow_mutex;
 
 	struct inode	vfs_inode;
