@@ -21,9 +21,6 @@
 #include <linux/time.h>
 #include <linux/pagemap.h>
 #include <linux/quotaops.h>
-#include <linux/uio.h>
-#include <linux/kernel.h>
-#include <linux/buffer_head.h>
 #include "ext2.h"
 #include "xattr.h"
 #include "acl.h"

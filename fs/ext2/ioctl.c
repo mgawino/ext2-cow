@@ -16,10 +16,7 @@
 #include <asm/current.h>
 #include <asm/uaccess.h>
 #include <linux/fdtable.h>
-#include <linux/list.h>
-#include <linux/slab.h>
 #include <linux/spinlock.h>
-#include <linux/buffer_head.h>
 
 
 int ext2_cow_file(struct inode * dest_inode, unsigned long source_fd) {

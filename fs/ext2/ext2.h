@@ -15,7 +15,6 @@
 #include <linux/blockgroup_lock.h>
 #include <linux/percpu_counter.h>
 #include <linux/rbtree.h>
-#include <linux/list.h>
 
 /* XXX Here for now... not interested in restructing headers JUST now */
 
@@ -696,7 +695,6 @@ struct ext2_inode_info {
 
 	__le32 i_cow_inode_next;
 	__le32 i_cow_inode_prev;
-	struct mutex i_cow_mutex;
 
 	struct inode	vfs_inode;
 	struct list_head i_orphan;	/* unlinked but open inodes */
@@ -771,7 +769,6 @@ extern void ext2_set_inode_flags(struct inode *inode);
 extern void ext2_get_inode_flags(struct ext2_inode_info *);
 extern int ext2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		       u64 start, u64 len);
-extern int is_block_shared(struct inode * inode, unsigned long block_no, int * offsets, int depth);
 
 /* ioctl.c */
 extern long ext2_ioctl(struct file *, unsigned int, unsigned long);
@@ -825,5 +822,3 @@ ext2_group_first_block_no(struct super_block *sb, unsigned long group_no)
 #define ext2_test_bit	test_bit_le
 #define ext2_find_first_zero_bit	find_first_zero_bit_le
 #define ext2_find_next_zero_bit		find_next_zero_bit_le
-
-#define LL(x) (long unsigned int) x

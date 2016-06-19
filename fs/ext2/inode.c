@@ -32,12 +32,10 @@
 #include <linux/fiemap.h>
 #include <linux/namei.h>
 #include <linux/uio.h>
-#include <linux/list.h>
 #include "ext2.h"
 #include "acl.h"
 #include "xattr.h"
 
-#define DEBUG 0
 
 static int __ext2_write_inode(struct inode *inode, int do_sync);
 
@@ -177,7 +175,7 @@ static inline int verify_chain(Indirect *from, Indirect *to)
  * get there at all.
  */
 
-int ext2_block_to_path(struct inode *inode,
+static int ext2_block_to_path(struct inode *inode,
 			long i_block, int offsets[4], int *boundary)
 {
 	int ptrs = EXT2_ADDR_PER_BLOCK(inode->i_sb);
@@ -897,9 +895,8 @@ cleanup:
 
 int ext2_get_block(struct inode *inode, sector_t iblock, struct buffer_head *bh_result, int create)
 {
-	int ret;
 	unsigned max_blocks = bh_result->b_size >> inode->i_blkbits;
-	ret = ext2_get_blocks(inode, iblock, max_blocks,
+	int ret = ext2_get_blocks(inode, iblock, max_blocks,
 			      bh_result, create);
 	if (ret > 0) {
 		bh_result->b_size = (ret << inode->i_blkbits);
@@ -1158,7 +1155,7 @@ static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q, int
 			else if (block_to_free == nr - count)
 				count++;
 			else {
-				ext2_free_blocks(inode, block_to_free, count);
+				ext2_free_blocks (inode, block_to_free, count);
 				mark_inode_dirty(inode);
 			free_this:
 				block_to_free = nr;
@@ -1169,7 +1166,7 @@ static inline void ext2_free_data(struct inode *inode, __le32 *p, __le32 *q, int
 	}
 	offsets[depth - 1] = 0;
 	if (count > 0) {
-		ext2_free_blocks(inode, block_to_free, count);
+		ext2_free_blocks (inode, block_to_free, count);
 		mark_inode_dirty(inode);
 	}
 }
@@ -1288,7 +1285,7 @@ static void __ext2_truncate_blocks(struct inode *inode, loff_t offset)
 				   (chain+n-1) - partial, temp_offsets , depth);
 		memcpy(temp_offsets, offsets, sizeof(offsets));
 		mark_buffer_dirty_inode(partial->bh, inode);
-		brelse(partial->bh);
+		brelse (partial->bh);
 		partial--;
 	}
 
@@ -1709,7 +1706,7 @@ static int __ext2_write_inode(struct inode *inode, int do_sync)
 	if (do_sync) {
 		sync_dirty_buffer(bh);
 		if (buffer_req(bh) && !buffer_uptodate(bh)) {
-			if (DEBUG) printk ("IO error syncing ext2 inode [%s:%08lx]\n",
+			printk ("IO error syncing ext2 inode [%s:%08lx]\n",
 				sb->s_id, (unsigned long) ino);
 			err = -EIO;
 		}
